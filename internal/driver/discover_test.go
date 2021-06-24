@@ -194,12 +194,21 @@ func TestAutoDiscoverNaming(t *testing.T) {
 			if discovered[0].Name != test.name {
 				t.Errorf("expected discovered device's name to be %s, but was: %s", test.name, discovered[0].Name)
 			}
-			pen, ok := discovered[0].Protocols["tcp"]["vendorPEN"]
+
+			pen, ok := discovered[0].Protocols["metadata"]["vendorPEN"]
 			if !ok {
-				t.Fatalf("Missing vendorPEN field in tcp protocol. ProtocolMap: %+v", discovered[0].Protocols)
+				t.Fatalf("Missing vendorPEN field in metadata protocol. ProtocolMap: %+v", discovered[0].Protocols)
 			}
 			if pen != strconv.FormatUint(uint64(test.caps.DeviceManufacturer), 10) {
 				t.Errorf("expected vendorPEN to be %v, but was: %s", test.caps.DeviceManufacturer, pen)
+			}
+
+			fw, ok := discovered[0].Protocols["metadata"]["fwVersion"]
+			if !ok {
+				t.Fatalf("Missing fwVersion field in metadata protocol. ProtocolMap: %+v", discovered[0].Protocols)
+			}
+			if fw != test.caps.FirmwareVersion {
+				t.Errorf("expected fwVersion to be %v, but was: %s", test.caps.FirmwareVersion, fw)
 			}
 		})
 	}

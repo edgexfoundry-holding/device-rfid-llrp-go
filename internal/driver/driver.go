@@ -54,12 +54,9 @@ const (
 	AttribVendor   = "vendor"
 	AttribSubtype  = "subtype"
 
-	// Note: For now disable the registration of provision watchers since we are not using them
-	registerProvisionWatchers = false
+	// enable this by default, otherwise discovery will not work.
+	registerProvisionWatchers = true
 	provisionWatcherFolder    = "res/provision_watchers"
-
-	GenericDeviceProfile = "Device.LLRP.Profile"
-	ImpinjDeviceProfile  = "Impinj.LLRP.Profile"
 
 	// discoverDebounceDuration is the amount of time to wait for additional changes to discover
 	// configuration before auto-triggering a discovery
@@ -892,50 +889,7 @@ func (d *Driver) discover(ctx context.Context) {
 		d.lc.Warn("Discover process has been cancelled!", "ctxErr", ctx.Err())
 	}
 
-	// Note: We have to send data over this channel to let the SDK know we are done discovering.
-	// see: https://github.com/edgexfoundry/device-sdk-go/issues/609
-	d.deviceCh <- nil
 	d.lc.Info(fmt.Sprintf("Discovered %d new devices in %v.", len(result), time.Now().Sub(t1)))
-
-	// Note: For now we have to resort to adding our discovered devices ourselves due to multiple bugs in the
-	// provision watcher code, as well as no clear way to tell if a device was matched by a PW or not.
-	// see: https://github.com/edgexfoundry/device-sdk-go/issues/598
-	// see also: https://github.com/edgexfoundry/device-sdk-go/issues/606
-	for _, discovered := range result {
-		if _, err := d.registerDevice(discovered); err != nil {
-			d.lc.Error("Error adding device.", "name", discovered.Name, "error", err)
-		}
-	}
-}
-
-func (d *Driver) registerDevice(discovered dsModels.DiscoveredDevice) (id string, err error) {
-	profile := GenericDeviceProfile
-	// Note: This is a bit of a workaround based on provision watcher logic. It was only left
-	// this way (as opposed to a total refactor) in order to allow a smooth transition
-	// back to provision watchers once the assortment of bugs have been fixed.
-	if discovered.Protocols["tcp"]["vendorPEN"] == strconv.FormatUint(uint64(Impinj), 10) {
-		profile = ImpinjDeviceProfile
-	}
-	// remove the field as it is no longer needed/useful
-	delete(discovered.Protocols["tcp"], "vendorPEN")
-
-	return d.svc.AddDevice(contract.Device{
-		DescribedObject: contract.DescribedObject{
-			Timestamps: contract.Timestamps{
-				Origin: time.Now().UnixNano(),
-			},
-			Description: discovered.Description,
-		},
-		Name: discovered.Name,
-		Profile: contract.DeviceProfile{
-			Name: profile,
-		},
-		Protocols: discovered.Protocols,
-		Labels:    discovered.Labels,
-		Service: contract.DeviceService{
-			Name: ServiceName,
-		},
-		AdminState:     contract.Unlocked,
-		OperatingState: contract.Enabled,
-	})
+	// pass the discovered devices to the EdgeX SDK to be passed through to the provision watchers
+	d.deviceCh <- result
 }

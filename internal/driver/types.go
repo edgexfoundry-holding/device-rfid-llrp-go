@@ -39,6 +39,6 @@ func (imt ImpinjModelType) HostnamePrefix() string {
 	case XArray, XArrayEAP, XArrayWM:
 		return "xArray"
 	default:
-		return DefaultDevicePrefix
+		return defaultDevicePrefix
 	}
 }

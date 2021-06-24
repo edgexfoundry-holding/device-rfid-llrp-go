@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	DefaultDevicePrefix = "LLRP"
-	UnknownVendorID     = 0
-	UnknownModelID      = 0
+	defaultDevicePrefix    = "LLRP"
+	unknownVendorID        = 0
+	unknownModelID         = 0
+	unknownFirmwareVersion = ""
 )
 
 // discoveryInfo holds information about a discovered device
@@ -36,6 +37,7 @@ type discoveryInfo struct {
 	port       string
 	vendor     uint32
 	model      uint32
+	fwVersion  string
 }
 
 // newDiscoveryInfo creates a new discoveryInfo with just a host and port pre-filled
@@ -236,7 +238,6 @@ func (info *discoveryInfo) updateExistingDevice(device contract.Device) error {
 			"oldInfo", fmt.Sprintf("%+v", tcpInfo),
 			"discoveredInfo", fmt.Sprintf("%+v", info))
 
-		// todo: double check to make sure EdgeX calls driver.UpdateDevice()
 		device.Protocols["tcp"] = map[string]string{
 			"host": info.host,
 			"port": info.port,
@@ -397,11 +398,13 @@ func probe(host, port string, timeout time.Duration) (*discoveryInfo, error) {
 	info := newDiscoveryInfo(host, port)
 	if readerCaps.GeneralDeviceCapabilities == nil {
 		driver.lc.Warn("ReaderCapabilities.GeneralDeviceCapabilities was nil, unable to determine vendor and model info")
-		info.vendor = UnknownVendorID
-		info.model = UnknownModelID
+		info.vendor = unknownVendorID
+		info.model = unknownModelID
+		info.fwVersion = unknownFirmwareVersion
 	} else {
 		info.vendor = readerCaps.GeneralDeviceCapabilities.DeviceManufacturer
 		info.model = readerCaps.GeneralDeviceCapabilities.Model
+		info.fwVersion = readerCaps.GeneralDeviceCapabilities.FirmwareVersion
 	}
 
 	if readerConfig.Identification == nil {
@@ -409,7 +412,7 @@ func probe(host, port string, timeout time.Duration) (*discoveryInfo, error) {
 		return nil, fmt.Errorf("unable to retrieve device identification")
 	}
 
-	prefix := DefaultDevicePrefix
+	prefix := defaultDevicePrefix
 	if VendorIDType(info.vendor) == Impinj {
 		prefix = ImpinjModelType(info.model).HostnamePrefix()
 	}
@@ -480,31 +483,44 @@ func newDiscoveredDevice(info *discoveryInfo) dsModels.DiscoveredDevice {
 		"RFID",
 		"LLRP",
 	}
+
+	// Add vendor string only if it is a known vendor
+	vendorStr := VendorIDType(info.vendor).String()
+	if !strings.HasPrefix(vendorStr, "VendorIDType(") {
+		labels = append(labels, vendorStr)
+	} else {
+		vendorStr = ""
+	}
+
+	// Add model string if it is available. Currently only supported for a select few Impinj devices.
+	var modelStr string
 	if VendorIDType(info.vendor) == Impinj {
-		labels = append(labels, Impinj.String())
-		modelStr := ImpinjModelType(info.model).String()
-		// only add the label if we know the model
+		ipjModelStr := ImpinjModelType(info.model).String()
 		if !strings.HasPrefix(modelStr, "ImpinjModelType(") {
 			labels = append(labels, modelStr)
+			modelStr = ipjModelStr
 		}
 	}
 
 	// Note that we are adding vendorPEN to the protocol properties in order to
 	// allow the provision watchers to be able to match against that info. Currently
 	// that is the only thing the provision watchers use for matching against.
-	//
-	// We would prefer to put the vendorPEN, and possibly model and fw version
-	// in a separate "protocol", possibly named "metadata", however there is a bug in the
-	// current logic that does not allow this.
-	//
-	// see: https://github.com/edgexfoundry/device-sdk-go/issues/598
 	return dsModels.DiscoveredDevice{
 		Name: info.deviceName,
 		Protocols: map[string]contract.ProtocolProperties{
 			"tcp": {
-				"host":      info.host,
-				"port":      info.port,
+				"host": info.host,
+				"port": info.port,
+			},
+			// we are adding a "metadata" protocol as a place to store general properties for
+			// matching against provision watchers. It is not an actual protocol, but
+			// the recommended way of adding generic key/value pairs to a device.
+			"metadata": {
 				"vendorPEN": strconv.FormatUint(uint64(info.vendor), 10),
+				"vendorStr": vendorStr,
+				"model":     strconv.FormatUint(uint64(info.model), 10),
+				"modelStr":  modelStr,
+				"fwVersion": info.fwVersion,
 			},
 		},
 		Description: "LLRP RFID Reader",
