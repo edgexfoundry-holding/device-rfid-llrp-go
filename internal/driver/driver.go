@@ -656,7 +656,7 @@ func (d *Driver) UpdateDevice(deviceName string, protocols protocolMap, adminSta
 	var isNew bool
 	dev, isNew, err = d.getDevice(deviceName, protocols)
 	// No need to call update if the device was just created.
-	if !(err == nil && isNew) {
+	if isNew || err != nil {
 		return err
 	}
 
